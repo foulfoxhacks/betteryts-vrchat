@@ -33,7 +33,7 @@ jobs:
       - name: Check package versions
         run: |
           fail=0
-          for pkg in Packages/com.foulfoxhacks.*; do
+          for pkg in Packages/com.foulfoxhacks.*/; do pkg="${pkg%/}";
             pv=$(jq -r .version "$pkg/package.json")
             if [ "$pv" != "${{ steps.version.outputs.version }}" ]; then
               echo "::error::$pkg is $pv, expected ${{ steps.version.outputs.version }}"; fail=1
@@ -44,7 +44,7 @@ jobs:
       - name: Zip packages
         run: |
           mkdir -p dist
-          for pkg in Packages/com.foulfoxhacks.*; do
+          for pkg in Packages/com.foulfoxhacks.*/; do pkg="${pkg%/}";
             name=$(jq -r .name "$pkg/package.json")
             (cd "$pkg" && zip -qr "$GITHUB_WORKSPACE/dist/$name-${{ steps.version.outputs.version }}.zip" .)
           done
