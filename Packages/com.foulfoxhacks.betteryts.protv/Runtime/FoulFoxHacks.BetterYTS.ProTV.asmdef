@@ -1,0 +1,26 @@
+{
+    "name": "FoulFoxHacks.BetterYTS.ProTV",
+    "rootNamespace": "FoulFoxHacks.BetterYTS.ProTV",
+    "references": [
+        "FoulFoxHacks.Core",
+        "ArchiTech.ProTV.Runtime",
+        "ArchiTech.SDK.Runtime",
+        "VRC.Udon",
+        "UdonSharp.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [
+        "VRCSDKBase.dll",
+        "VRCSDK3.dll",
+        "VRC.Udon.Common.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [
+        "UDONSHARP"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

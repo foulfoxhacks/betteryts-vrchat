@@ -1,0 +1,13 @@
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Ll]ogs/
+[Uu]serSettings/
+*.csproj
+*.sln
+# Tooling
+node_modules/
+dist/
+.DS_Store

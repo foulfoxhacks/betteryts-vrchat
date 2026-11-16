@@ -1,0 +1,21 @@
+{
+  "name": "com.foulfoxhacks.betteryts",
+  "displayName": "BetterYTS In-World Search",
+  "version": "1.0.0",
+  "unity": "2022.3",
+  "description": "BetterYTS by FoulFoxHacks: an in-world YouTube search panel for VRChat. Type a search, browse a thumbnail grid of ad-free results, and click to play on your world's video player (ProTV, VRChat players, or any Udon player).",
+  "author": {
+    "name": "FoulFoxHacks (Sammy The Femboy Puppy)",
+    "url": "https://akasammythepuppy.me"
+  },
+  "license": "MIT",
+  "documentationUrl": "https://github.com/foulfoxhacks/betteryts-vrchat#readme",
+  "changelogUrl": "https://github.com/foulfoxhacks/betteryts-vrchat/blob/main/Packages/com.foulfoxhacks.betteryts/CHANGELOG.md",
+  "keywords": ["vrchat", "udonsharp", "youtube", "search", "video", "betteryts", "foulfoxhacks"],
+  "vpmDependencies": {
+    "com.vrchat.worlds": "^3.7.0",
+    "com.foulfoxhacks.core": "^1.0.0"
+  },
+  "legacyFolders": {},
+  "legacyFiles": {}
+}

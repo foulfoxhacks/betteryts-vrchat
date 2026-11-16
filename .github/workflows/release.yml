@@ -1,0 +1,71 @@
+name: Build Release
+
+# Push a tag like v1.0.0 (every package.json must have that version) or run manually.
+# Each package is zipped and attached to one GitHub release; the FoulFoxHacks VCC listing
+# (foulfoxhacks/vpm) picks up every .zip it finds in this repo's releases.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (must match every package.json), e.g. 1.0.1"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then v="${{ github.event.inputs.version }}"; else v="${GITHUB_REF_NAME#v}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Check package versions
+        run: |
+          fail=0
+          for pkg in Packages/com.foulfoxhacks.*; do
+            pv=$(jq -r .version "$pkg/package.json")
+            if [ "$pv" != "${{ steps.version.outputs.version }}" ]; then
+              echo "::error::$pkg is $pv, expected ${{ steps.version.outputs.version }}"; fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Zip packages
+        run: |
+          mkdir -p dist
+          for pkg in Packages/com.foulfoxhacks.*; do
+            name=$(jq -r .name "$pkg/package.json")
+            (cd "$pkg" && zip -qr "$GITHUB_WORKSPACE/dist/$name-${{ steps.version.outputs.version }}.zip" .)
+          done
+          ls -la dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          files: dist/*.zip
+          body: |
+            Add the FoulFoxHacks listing to VRChat Creator Companion:
+            https://vpm.foulfoxhacks.dev/index.json
+            (or open vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.foulfoxhacks.dev%2Findex.json)
+
+      # Optional: if a VPM_DISPATCH_TOKEN secret (fine-grained PAT with Actions:write on foulfoxhacks/vpm)
+      # exists, rebuild the listing right away. Otherwise the listing's schedule picks it up.
+      - name: Rebuild listing
+        if: ${{ env.DISPATCH_TOKEN != '' }}
+        env:
+          DISPATCH_TOKEN: ${{ secrets.VPM_DISPATCH_TOKEN }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $DISPATCH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/foulfoxhacks/vpm/actions/workflows/build-listing.yml/dispatches \
+            -d '{"ref":"main"}'
