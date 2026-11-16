@@ -19,6 +19,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      DISPATCH_TOKEN: ${{ secrets.VPM_DISPATCH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -63,8 +65,6 @@ jobs:
       # exists, rebuild the listing right away. Otherwise the listing's schedule picks it up.
       - name: Rebuild listing
         if: ${{ env.DISPATCH_TOKEN != '' }}
-        env:
-          DISPATCH_TOKEN: ${{ secrets.VPM_DISPATCH_TOKEN }}
         run: |
           curl -fsS -X POST -H "Authorization: Bearer $DISPATCH_TOKEN" -H "Accept: application/vnd.github+json" \
             https://api.github.com/repos/foulfoxhacks/vpm/actions/workflows/build-listing.yml/dispatches \
