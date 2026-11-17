@@ -1,7 +1,7 @@
 {
   "name": "com.foulfoxhacks.betteryts.protv",
   "displayName": "BetterYTS for ProTV",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "unity": "2022.3",
   "description": "Plays BetterYTS in-world search results on ProTV 3, with ProTV's sync, queue and security. Also plays any FoulFoxHacks tool's URLs on ProTV.",
   "author": {
@@ -15,7 +15,7 @@
   "vpmDependencies": {
     "com.vrchat.worlds": "^3.7.0",
     "com.foulfoxhacks.core": "^1.0.0",
-    "com.foulfoxhacks.betteryts": "^1.0.0",
+    "com.foulfoxhacks.betteryts": "^1.0.1",
     "dev.architech.protv": ">=3.0.0-beta.20"
   },
   "legacyFolders": {},

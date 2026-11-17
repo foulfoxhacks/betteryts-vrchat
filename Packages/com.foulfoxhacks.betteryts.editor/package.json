@@ -1,7 +1,7 @@
 {
   "name": "com.foulfoxhacks.betteryts.editor",
   "displayName": "BetterYTS Editor Tools",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "unity": "2022.3",
   "description": "Unity editor tools for BetterYTS by FoulFoxHacks: one-click in-world search panel, URL pool baking, a VRChat link builder, and ProTV playlist import from YouTube searches or playlists. Tools > FoulFoxHacks > BetterYTS.",
   "author": {
@@ -15,7 +15,7 @@
   "vpmDependencies": {
     "com.vrchat.worlds": "^3.7.0",
     "com.foulfoxhacks.core": "^1.0.0",
-    "com.foulfoxhacks.betteryts": "^1.0.0"
+    "com.foulfoxhacks.betteryts": "^1.0.1"
   },
   "legacyFolders": {},
   "legacyFiles": {}
