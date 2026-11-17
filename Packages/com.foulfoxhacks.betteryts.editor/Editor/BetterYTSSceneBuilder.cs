@@ -70,7 +70,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             input.textComponent = inputText;
             input.placeholder = placeholder;
             input.targetGraphic = inputBg;
-            input.lineType = InputField.LineType.SingleLine;
+            input.lineType = VRCUrlInputField.LineType.SingleLine;
 
             // Results grid
             var grid = Child(root.transform, "Results");

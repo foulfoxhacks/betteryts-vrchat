@@ -5,7 +5,8 @@
         "FoulFoxHacks.Core",
         "VRC.Udon",
         "UdonSharp.Runtime",
-        "Unity.TextMeshPro"
+        "Unity.TextMeshPro",
+        "VRC.Udon.Serialization.OdinSerializer"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
