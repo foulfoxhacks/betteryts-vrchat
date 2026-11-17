@@ -1,7 +1,7 @@
 {
   "name": "com.foulfoxhacks.core",
   "displayName": "FoulFoxHacks Core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "unity": "2022.3",
   "description": "Shared UdonSharp building blocks for FoulFoxHacks world tools: a baked VRCUrl pool (Udon can't build URLs at runtime) and video-player targets that let any tool play a URL on VRChat's players or any Udon player.",
   "author": {

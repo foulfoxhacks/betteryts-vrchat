@@ -1,7 +1,7 @@
 {
   "name": "com.foulfoxhacks.betteryts",
   "displayName": "BetterYTS In-World Search",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "unity": "2022.3",
   "description": "BetterYTS by FoulFoxHacks: an in-world YouTube search panel for VRChat. Type a search, browse a thumbnail grid of ad-free results, and click to play on your world's video player (ProTV, VRChat players, or any Udon player).",
   "author": {
