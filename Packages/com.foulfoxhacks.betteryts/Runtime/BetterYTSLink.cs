@@ -455,6 +455,13 @@ namespace FoulFoxHacks.BetterYTS
             }
         }
 
+        /// <summary>The poll slot no longer belongs to this code: stop and offer a new one.</summary>
+        private void PollSlotLost(int service)
+        {
+            if (!_codeActive || service != _codeService) return; // Cancelled meanwhile.
+            CodeExpired();
+        }
+
         private void CodeExpired()
         {
             _codeActive = false;
@@ -476,11 +483,21 @@ namespace FoulFoxHacks.BetterYTS
             DataToken root;
             if (!VRCJson.TryDeserializeFromJson(result.Result, out root) || root.TokenType != TokenType.DataDictionary)
             {
-                if (kind != ReqPoll) _unlinkAfterLoad = false;
+                if (kind == ReqPoll) { PollSlotLost(service); return; }
+                _unlinkAfterLoad = false;
                 Failed(kind, "BetterYTS sent something unexpected. Try again.");
                 return;
             }
             DataDictionary data = root.DataDictionary;
+
+            // The pool is a ring: if heavy search traffic re-used the poll slot before the code expired,
+            // it now holds something else (a v1 search page, etc.). Treat anything that isn't a v2 link
+            // answer with a status as an expired code.
+            if (kind == ReqPoll && (ReadInt(data, "v", -1) != ProtocolVersion || ReadString(data, "status").Length == 0))
+            {
+                PollSlotLost(service);
+                return;
+            }
 
             DataToken version;
             if (data.TryGetValue("v", TokenType.Double, out version) && (int)version.Double != ProtocolVersion)
@@ -567,7 +584,12 @@ namespace FoulFoxHacks.BetterYTS
             int service = _requestService;
             _request = ReqNone;
             int code = result.ErrorCode;
-            if (kind == ReqPoll) return; // Transient; keep polling until the code expires.
+            if (kind == ReqPoll)
+            {
+                // 404: the poll slot is empty, so the code is gone. Anything else: keep polling.
+                if (code == 404) PollSlotLost(service);
+                return;
+            }
 
             bool unlinking = _unlinkAfterLoad || kind == ReqForget;
             _unlinkAfterLoad = false;
