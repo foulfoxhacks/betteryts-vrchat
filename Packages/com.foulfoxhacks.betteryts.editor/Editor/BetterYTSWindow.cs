@@ -57,10 +57,19 @@ namespace FoulFoxHacks.BetterYTS.Editor
             w.Show();
         }
 
+        /// <summary>The BetterYTS server set in this window (no trailing slash).</summary>
+        internal static string Server => EditorPrefs.GetString(PrefServer, DefaultServer).TrimEnd('/');
+
         [MenuItem("Tools/FoulFoxHacks/Create BetterYTS Search Panel", priority = 101)]
         public static void CreatePanelMenu()
         {
-            BetterYTSSceneBuilder.Build(EditorPrefs.GetString(PrefServer, DefaultServer), 20000);
+            BetterYTSSceneBuilder.Build(Server, 20000);
+        }
+
+        [MenuItem("Tools/FoulFoxHacks/Create BetterYTS Link Panel", priority = 102)]
+        public static void CreateLinkPanelMenu()
+        {
+            BetterYTSLinkPanelBuilder.Build(Server, 20000);
         }
 
         private void OnEnable()
@@ -125,6 +134,10 @@ namespace FoulFoxHacks.BetterYTS.Editor
             if (GUILayout.Button("Create search panel in scene", GUILayout.Height(34)))
             {
                 BetterYTSSceneBuilder.Build(_server, poolSize);
+            }
+            if (GUILayout.Button(new GUIContent("Create link panel in scene", "Players link YouTube or Spotify with a code on their phone; their playlists are saved for their next visit."), GUILayout.Height(28)))
+            {
+                BetterYTSLinkPanelBuilder.Build(_server, poolSize);
             }
 
             EditorGUILayout.Space(10);

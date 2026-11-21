@@ -28,6 +28,8 @@ Or click: [Add to VCC](vcc://vpm/addRepo?url=https%3A%2F%2Fvpm.foulfoxhacks.dev%
 2. Put a video player in your scene (ProTV recommended).
 3. **Tools > FoulFoxHacks > Create BetterYTS Search Panel.** Done: the panel, URL pool, player link and button events are all set up.
 
+4. Optional: **Tools > FoulFoxHacks > Create BetterYTS Link Panel** lets players link YouTube or Spotify and keep their playlists across visits.
+
 Players need **Allow Untrusted URLs** enabled (Settings > Comfort & Safety) to use any custom search service in VRChat.
 
 ## ProTV playlists from YouTube

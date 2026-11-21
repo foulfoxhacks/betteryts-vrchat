@@ -18,12 +18,12 @@ namespace FoulFoxHacks.BetterYTS.Editor
     public static class BetterYTSSceneBuilder
     {
         // akasammythepuppy.me palette
-        private static readonly Color Bg = Hex("#130d0a");
-        private static readonly Color Card = Hex("#1e1511");
-        private static readonly Color Cream = Hex("#fff3e4");
-        private static readonly Color Muted = Hex("#a79fb2");
-        private static readonly Color Gold = Hex("#ffc857");
-        private static readonly Color Ink = Hex("#1d1005");
+        internal static readonly Color Bg = Hex("#130d0a");
+        internal static readonly Color Card = Hex("#1e1511");
+        internal static readonly Color Cream = Hex("#fff3e4");
+        internal static readonly Color Muted = Hex("#a79fb2");
+        internal static readonly Color Gold = Hex("#ffc857");
+        internal static readonly Color Ink = Hex("#1d1005");
 
         private const float Width = 1600f;
         private const float Height = 1400f;
@@ -31,6 +31,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
 
         public static BetterYTSSearch Build(string baseUrl, int poolSize)
         {
+            if (!EnsureTmpEssentials(() => Build(baseUrl, poolSize))) return null;
             baseUrl = baseUrl.TrimEnd('/');
             var root = new GameObject("BetterYTS Search Panel");
             Undo.RegisterCreatedObjectUndo(root, "Create BetterYTS Search Panel");
@@ -203,6 +204,41 @@ namespace FoulFoxHacks.BetterYTS.Editor
 
         // ------------------------------------------------------------------ UI helpers
 
+        /// <summary>
+        /// TextMeshPro text needs TMP's Essential Resources in the project (Assets/TextMesh Pro);
+        /// without them every TMP component throws. If they're missing, offers to import them and
+        /// runs <paramref name="thenBuild"/> once the import has finished. True = build now.
+        /// </summary>
+        internal static bool EnsureTmpEssentials(Action thenBuild)
+        {
+            if (Resources.Load<TMP_Settings>("TMP Settings") != null) return true;
+            if (!Application.isBatchMode && !EditorUtility.DisplayDialog("BetterYTS",
+                    "BetterYTS panels use TextMesh Pro, and its Essential Resources aren't in this project yet.\n\nImport them now? The panel is built as soon as they're in. (Same as Window > TextMeshPro > Import TMP Essential Resources.)",
+                    "Import", "Cancel"))
+                return false;
+
+            AssetDatabase.ImportPackageCallback done = null;
+            AssetDatabase.ImportPackageFailedCallback failed = null;
+            done = name =>
+            {
+                if (!name.Contains("TMP Essential")) return;
+                AssetDatabase.importPackageCompleted -= done;
+                AssetDatabase.importPackageFailed -= failed;
+                EditorApplication.delayCall += () => thenBuild?.Invoke();
+            };
+            failed = (name, error) =>
+            {
+                if (!name.Contains("TMP Essential")) return;
+                AssetDatabase.importPackageCompleted -= done;
+                AssetDatabase.importPackageFailed -= failed;
+                Debug.LogError("[BetterYTS] Couldn't import TMP Essential Resources: " + error);
+            };
+            AssetDatabase.importPackageCompleted += done;
+            AssetDatabase.importPackageFailed += failed;
+            TMP_PackageResourceImporter.ImportResources(true, false, false);
+            return false;
+        }
+
         private static GameObject TargetObject(Transform parent, string name)
         {
             var go = new GameObject(name);
@@ -211,7 +247,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             return go;
         }
 
-        private static Button MakeButton(Transform parent, string name, string label, Vector2 anchor, Vector2 min, Vector2 max)
+        internal static Button MakeButton(Transform parent, string name, string label, Vector2 anchor, Vector2 min, Vector2 max)
         {
             var rect = Child(parent, name);
             Anchor(rect, anchor, anchor, min, max);
@@ -224,14 +260,14 @@ namespace FoulFoxHacks.BetterYTS.Editor
             return button;
         }
 
-        private static RectTransform Child(Transform parent, string name)
+        internal static RectTransform Child(Transform parent, string name)
         {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent, false);
             return (RectTransform)go.transform;
         }
 
-        private static TextMeshProUGUI Tmp(Transform parent, string name, string text, float size, Color color, TextAlignmentOptions align, FontStyles style)
+        internal static TextMeshProUGUI Tmp(Transform parent, string name, string text, float size, Color color, TextAlignmentOptions align, FontStyles style)
         {
             var rect = Child(parent, name);
             var tmp = rect.gameObject.AddComponent<TextMeshProUGUI>();
@@ -260,12 +296,12 @@ namespace FoulFoxHacks.BetterYTS.Editor
             return t;
         }
 
-        private static void Stretch(RectTransform rect)
+        internal static void Stretch(RectTransform rect)
         {
             Anchor(rect, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
         }
 
-        private static void Anchor(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+        internal static void Anchor(RectTransform rect, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
         {
             rect.anchorMin = anchorMin;
             rect.anchorMax = anchorMax;
@@ -274,7 +310,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             rect.offsetMax = offsetMax;
         }
 
-        private static void PlaceInFrontOfSceneView(Transform t)
+        internal static void PlaceInFrontOfSceneView(Transform t)
         {
             var view = SceneView.lastActiveSceneView;
             if (view == null || view.camera == null)
@@ -287,7 +323,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             t.rotation = Quaternion.LookRotation(cam.forward, Vector3.up);
         }
 
-        private static Color Hex(string hex)
+        internal static Color Hex(string hex)
         {
             ColorUtility.TryParseHtmlString(hex, out var c);
             return c;
