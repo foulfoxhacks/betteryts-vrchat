@@ -15,7 +15,7 @@ namespace FoulFoxHacks.BetterYTS
     /// BetterYTS in-world account linking and saved libraries (protocol v1, "Linking":
     /// https://github.com/foulfoxhacks/betteryts/blob/main/docs/vrchat-protocol.md#linking).
     ///
-    /// Works like a TV sign-in: <c>Link YouTube</c> / <c>Link Spotify</c> loads a baked start URL
+    /// Works like a TV sign-in: <c>Link YouTube</c> / <c>Link Spotify</c> / <c>Link TikTok</c> loads a baked start URL
     /// that returns an activation code. The player types it at the shown address on their phone,
     /// picks playlists, and this script polls <c>pool[poll]</c> until they arrive. The library
     /// number is kept in PlayerData so the playlists come back on the next visit via the baked
@@ -30,6 +30,8 @@ namespace FoulFoxHacks.BetterYTS
         private const int ProtocolVersion = 1;
         public const int ServiceYouTube = 0;
         public const int ServiceSpotify = 1;
+        public const int ServiceTikTok = 2;
+        public const string TikTokUnavailable = "TikTok linking isn't available yet.";
         public const int MaxRows = 10;
         private const int MaxPlaylists = 20;
         private const int MaxTracks = 1000;
@@ -50,6 +52,8 @@ namespace FoulFoxHacks.BetterYTS
         public VRCUrl startYouTubeUrl;
         [Tooltip("…/vrc/link/start/spotify")]
         public VRCUrl startSpotifyUrl;
+        [Tooltip("…/vrc/link/start/tiktok")]
+        public VRCUrl startTikTokUrl;
         [Tooltip("Baked BetterYTS URL pool (…/vrc/p/{slot}, 20000 slots). Used for polling and playing.")]
         public FFHUrlPool pool;
         [Tooltip("Baked saved-library URLs (…/vrc/l/{slot}, 10000 slots).")]
@@ -60,6 +64,7 @@ namespace FoulFoxHacks.BetterYTS
         [Header("PlayerData keys")]
         public string youTubeKey = "betteryts.library.youtube";
         public string spotifyKey = "betteryts.library.spotify";
+        public string tiktokKey = "betteryts.library.tiktok";
 
         [Header("Panels")]
         [Tooltip("Shown when the selected service has no saved library: the Link buttons and privacy line.")]
@@ -72,6 +77,7 @@ namespace FoulFoxHacks.BetterYTS
         [Header("Service tabs (optional)")]
         public Button youTubeTab;
         public Button spotifyTab;
+        public Button tiktokTab;
 
         [Header("Code panel")]
         public TextMeshProUGUI codeText;
@@ -106,6 +112,7 @@ namespace FoulFoxHacks.BetterYTS
         // Loaded libraries, indexed by service (null = not loaded yet).
         private DataList _ytPlaylists;
         private DataList _spPlaylists;
+        private DataList _ttPlaylists;
         private string[] _accounts;
 
         private int _service = ServiceYouTube;
@@ -130,8 +137,8 @@ namespace FoulFoxHacks.BetterYTS
         private void Start()
         {
             _receiver = (IUdonEventReceiver)this;
-            _saved = new int[] { -1, -1 };
-            _accounts = new string[] { "", "" };
+            _saved = new int[] { -1, -1, -1 };
+            _accounts = new string[] { "", "", "" };
             if (privacyText != null) privacyText.text = privacyLine;
             ShowView(ViewBusy);
             SetStatus("Loading your saved playlists…");
@@ -145,7 +152,14 @@ namespace FoulFoxHacks.BetterYTS
             _restored = true;
             _saved[ServiceYouTube] = ReadSaved(player, youTubeKey);
             _saved[ServiceSpotify] = ReadSaved(player, spotifyKey);
-            _service = _saved[ServiceYouTube] < 0 && _saved[ServiceSpotify] >= 0 ? ServiceSpotify : ServiceYouTube;
+            _saved[ServiceTikTok] = ReadSaved(player, tiktokKey);
+            // Open on the first service with a saved library (YouTube if none).
+            _service = ServiceYouTube;
+            if (_saved[ServiceYouTube] < 0)
+            {
+                if (_saved[ServiceSpotify] >= 0) _service = ServiceSpotify;
+                else if (_saved[ServiceTikTok] >= 0) _service = ServiceTikTok;
+            }
             SetStatus("");
             Refresh();
         }
@@ -161,13 +175,14 @@ namespace FoulFoxHacks.BetterYTS
         {
             _saved[service] = library;
             // PlayerData has no delete, so -1 means "no library".
-            PlayerData.SetInt(service == ServiceSpotify ? spotifyKey : youTubeKey, library);
+            PlayerData.SetInt(KeyFor(service), library);
         }
 
         // ------------------------------------------------------------------ UI events
 
         public void _LinkYouTube() { StartLink(ServiceYouTube); }
         public void _LinkSpotify() { StartLink(ServiceSpotify); }
+        public void _LinkTikTok() { StartLink(ServiceTikTok); }
 
         /// <summary>Get a new code for the service whose code expired (or is showing).</summary>
         public void _NewCode() { StartLink(_codeService); }
@@ -181,6 +196,7 @@ namespace FoulFoxHacks.BetterYTS
 
         public void _ShowYouTube() { SelectService(ServiceYouTube); }
         public void _ShowSpotify() { SelectService(ServiceSpotify); }
+        public void _ShowTikTok() { SelectService(ServiceTikTok); }
 
         /// <summary>Forget the saved library for the selected service.</summary>
         public void _Unlink()
@@ -255,8 +271,13 @@ namespace FoulFoxHacks.BetterYTS
         private void StartLink(int service)
         {
             if (_request != ReqNone) { SetStatus("One moment…"); return; }
-            VRCUrl url = service == ServiceSpotify ? startSpotifyUrl : startYouTubeUrl;
-            if (url == null || url.Get().Length == 0) { SetStatus("This panel's link URLs aren't baked. Ask the world creator to press Bake."); return; }
+            VRCUrl url = StartUrlFor(service);
+            if (url == null || url.Get().Length == 0)
+            {
+                if (service == ServiceTikTok) { SetStatus(TikTokUnavailable); return; }
+                SetStatus("This panel's link URLs aren't baked. Ask the world creator to press Bake.");
+                return;
+            }
             _service = service;
             _codeActive = false;
             UpdateTabs();
@@ -368,6 +389,7 @@ namespace FoulFoxHacks.BetterYTS
             if (data.TryGetValue("ok", TokenType.Boolean, out ok) && !ok.Boolean)
             {
                 string err = ReadString(data, "error");
+                if (kind == ReqStart && service == ServiceTikTok) err = TikTokStartError(err);
                 Failed(kind, err.Length > 0 ? err : "BetterYTS couldn't do that. Try again.");
                 return;
             }
@@ -401,15 +423,33 @@ namespace FoulFoxHacks.BetterYTS
         public override void OnStringLoadError(IVRCStringDownload result)
         {
             int kind = _request;
+            int service = _requestService;
             _request = ReqNone;
             int code = result.ErrorCode;
             if (kind == ReqPoll) return; // Transient; keep polling until the code expires.
             // BetterYTS errors carry { ok:false, error:"…" }. Show that when VRChat passes the body on.
             string serverError = ErrorFromBody(result.Result);
+            bool unreachable = code == 0 || code == 401 || code == 403;
+            if (kind == ReqStart && service == ServiceTikTok && !unreachable && code != 429)
+            {
+                // The server may not offer TikTok yet (no endpoint, or the app isn't approved).
+                Failed(kind, TikTokStartError(serverError));
+                return;
+            }
             if (serverError.Length > 0) Failed(kind, serverError);
             else if (code == 0 || code == 401 || code == 403) Failed(kind, untrustedUrlsHint);
             else if (code == 429) Failed(kind, "BetterYTS is busy for this connection. Try again in a few minutes.");
             else Failed(kind, "BetterYTS error " + code + ". Try again in a moment.");
+        }
+
+        /// <summary>
+        /// What to show when a TikTok start request fails: the server's own message, unless it's
+        /// missing or just "Unknown service" (the server has no TikTok endpoint yet).
+        /// </summary>
+        private string TikTokStartError(string serverError)
+        {
+            if (serverError == null || serverError.Length == 0 || serverError == "Unknown service") return TikTokUnavailable;
+            return serverError;
         }
 
         /// <summary>The "error" text of a BetterYTS error body, or "" if there's no usable body.</summary>
@@ -437,7 +477,7 @@ namespace FoulFoxHacks.BetterYTS
             if (code.Length == 0 || poll < 0) { Failed(ReqStart, "BetterYTS sent something unexpected. Try again."); return; }
             if (pool.GetUrl(poll) == null) { Failed(ReqStart, "This world's URL pool is too small. Re-bake it with 20000 slots."); return; }
             string url = ReadString(data, "url");
-            if (url.Length == 0) url = "yts.foulfoxhacks.dev/inworld/" + (service == ServiceSpotify ? "spotify" : "youtube") + "/auth";
+            if (url.Length == 0) url = "yts.foulfoxhacks.dev/inworld/" + ServiceSlug(service) + "/auth";
             ShowCode(service, code, url, ReadInt(data, "expiresIn", 600), poll);
         }
 
@@ -604,12 +644,15 @@ namespace FoulFoxHacks.BetterYTS
 
         private DataList GetPlaylists(int service)
         {
-            return service == ServiceSpotify ? _spPlaylists : _ytPlaylists;
+            if (service == ServiceSpotify) return _spPlaylists;
+            if (service == ServiceTikTok) return _ttPlaylists;
+            return _ytPlaylists;
         }
 
         private void SetPlaylists(int service, DataList playlists, string account)
         {
             if (service == ServiceSpotify) _spPlaylists = playlists;
+            else if (service == ServiceTikTok) _ttPlaylists = playlists;
             else _ytPlaylists = playlists;
             _accounts[service] = account;
         }
@@ -628,11 +671,35 @@ namespace FoulFoxHacks.BetterYTS
         {
             if (youTubeTab != null) youTubeTab.interactable = _service != ServiceYouTube;
             if (spotifyTab != null) spotifyTab.interactable = _service != ServiceSpotify;
+            if (tiktokTab != null) tiktokTab.interactable = _service != ServiceTikTok;
         }
 
         private string ServiceName(int service)
         {
-            return service == ServiceSpotify ? "Spotify" : "YouTube";
+            if (service == ServiceSpotify) return "Spotify";
+            if (service == ServiceTikTok) return "TikTok";
+            return "YouTube";
+        }
+
+        private string ServiceSlug(int service)
+        {
+            if (service == ServiceSpotify) return "spotify";
+            if (service == ServiceTikTok) return "tiktok";
+            return "youtube";
+        }
+
+        private string KeyFor(int service)
+        {
+            if (service == ServiceSpotify) return spotifyKey;
+            if (service == ServiceTikTok) return tiktokKey;
+            return youTubeKey;
+        }
+
+        private VRCUrl StartUrlFor(int service)
+        {
+            if (service == ServiceSpotify) return startSpotifyUrl;
+            if (service == ServiceTikTok) return startTikTokUrl;
+            return startYouTubeUrl;
         }
 
         private void SetStatus(string message)

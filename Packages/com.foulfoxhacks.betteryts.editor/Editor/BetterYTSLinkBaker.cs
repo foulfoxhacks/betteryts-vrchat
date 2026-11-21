@@ -9,7 +9,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
 {
     /// <summary>
     /// Bakes every URL a <see cref="BetterYTSLink"/> needs (Udon can't build URLs at runtime):
-    /// the two start URLs, the saved-library pool <c>{base}/vrc/l/{n}</c> and, if it's empty,
+    /// the three start URLs, the saved-library pool <c>{base}/vrc/l/{n}</c> and, if it's empty,
     /// the shared slot pool <c>{base}/vrc/p/{slot}</c>.
     /// </summary>
     public static class BetterYTSLinkBaker
@@ -29,6 +29,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
 
             link.startYouTubeUrl = new VRCUrl(StartUrl(baseUrl, "youtube"));
             link.startSpotifyUrl = new VRCUrl(StartUrl(baseUrl, "spotify"));
+            link.startTikTokUrl = new VRCUrl(StartUrl(baseUrl, "tiktok"));
 
             if (link.libraryPool != null)
             {
@@ -50,7 +51,8 @@ namespace FoulFoxHacks.BetterYTS.Editor
         {
             if (link == null) return "No BetterYTSLink.";
             if (link.startYouTubeUrl == null || string.IsNullOrEmpty(link.startYouTubeUrl.Get()) ||
-                link.startSpotifyUrl == null || string.IsNullOrEmpty(link.startSpotifyUrl.Get()))
+                link.startSpotifyUrl == null || string.IsNullOrEmpty(link.startSpotifyUrl.Get()) ||
+                link.startTikTokUrl == null || string.IsNullOrEmpty(link.startTikTokUrl.Get()))
                 return "Start URLs aren't baked.";
             if (link.libraryPool == null) return "No saved-library pool is assigned.";
             if (link.libraryPool.GetSize() != LibrarySlots) return $"The saved-library pool has {link.libraryPool.GetSize():N0} slots; it needs {LibrarySlots:N0}.";

@@ -40,12 +40,14 @@ namespace FoulFoxHacks.BetterYTS.Editor
 
             // Header + service tabs
             var title = Tmp(root.transform, "Title", "My playlists", 60, Cream, TextAlignmentOptions.Left, FontStyles.Bold);
-            Anchor(title.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(48, -110), new Vector2(700, -24));
+            Anchor(title.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(48, -110), new Vector2(520, -24));
             var by = Tmp(root.transform, "By", "BETTERYTS BY FOULFOXHACKS", 22, Gold, TextAlignmentOptions.Left, FontStyles.Bold);
             by.characterSpacing = 18f;
-            Anchor(by.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(52, -150), new Vector2(800, -108));
-            var ytTab = MakeButton(root.transform, "YouTube Tab", "YouTube", new Vector2(1, 1), new Vector2(-500, -120), new Vector2(-280, -40));
-            var spTab = MakeButton(root.transform, "Spotify Tab", "Spotify", new Vector2(1, 1), new Vector2(-268, -120), new Vector2(-48, -40));
+            Anchor(by.rectTransform, new Vector2(0, 1), new Vector2(0, 1), new Vector2(52, -150), new Vector2(520, -108));
+            // Three tabs, 196 wide with 12 gaps, right-aligned: they end at -48 and start at -660.
+            var ytTab = MakeButton(root.transform, "YouTube Tab", "YouTube", new Vector2(1, 1), new Vector2(-660, -112), new Vector2(-464, -32));
+            var spTab = MakeButton(root.transform, "Spotify Tab", "Spotify", new Vector2(1, 1), new Vector2(-452, -112), new Vector2(-256, -32));
+            var ttTab = MakeButton(root.transform, "TikTok Tab", "TikTok", new Vector2(1, 1), new Vector2(-244, -112), new Vector2(-48, -32));
 
             // Body area shared by the three panels
             var body = Child(root.transform, "Body");
@@ -59,8 +61,9 @@ namespace FoulFoxHacks.BetterYTS.Editor
                 38, Cream, TextAlignmentOptions.Center, FontStyles.Normal);
             linkIntro.enableWordWrapping = true;
             Anchor(linkIntro.rectTransform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -260), new Vector2(0, -40));
-            var linkYt = MakeButton(linkPanel, "Link YouTube Button", "Link YouTube", new Vector2(0.5f, 0.5f), new Vector2(-300, 10), new Vector2(300, 130));
-            var linkSp = MakeButton(linkPanel, "Link Spotify Button", "Link Spotify", new Vector2(0.5f, 0.5f), new Vector2(-300, -160), new Vector2(300, -40));
+            var linkYt = MakeButton(linkPanel, "Link YouTube Button", "Link YouTube", new Vector2(0.5f, 0.5f), new Vector2(-300, 80), new Vector2(300, 180));
+            var linkSp = MakeButton(linkPanel, "Link Spotify Button", "Link Spotify", new Vector2(0.5f, 0.5f), new Vector2(-300, -50), new Vector2(300, 50));
+            var linkTt = MakeButton(linkPanel, "Link TikTok Button", "Link TikTok", new Vector2(0.5f, 0.5f), new Vector2(-300, -180), new Vector2(300, -80));
 
             // --- Code panel
             var codePanel = Child(body, "Code Panel");
@@ -157,6 +160,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             link.libraryPanel = libPanel.gameObject;
             link.youTubeTab = ytTab;
             link.spotifyTab = spTab;
+            link.tiktokTab = ttTab;
             link.codeText = code;
             link.codeUrlText = codeUrl;
             link.countdownText = countdown;
@@ -179,8 +183,10 @@ namespace FoulFoxHacks.BetterYTS.Editor
             var udon = UdonSharpEditorUtility.GetBackingUdonBehaviour(link);
             Wire(linkYt, udon, nameof(BetterYTSLink._LinkYouTube));
             Wire(linkSp, udon, nameof(BetterYTSLink._LinkSpotify));
+            Wire(linkTt, udon, nameof(BetterYTSLink._LinkTikTok));
             Wire(ytTab, udon, nameof(BetterYTSLink._ShowYouTube));
             Wire(spTab, udon, nameof(BetterYTSLink._ShowSpotify));
+            Wire(ttTab, udon, nameof(BetterYTSLink._ShowTikTok));
             Wire(newCode, udon, nameof(BetterYTSLink._NewCode));
             Wire(cancel, udon, nameof(BetterYTSLink._CancelCode));
             Wire(back, udon, nameof(BetterYTSLink._Back));

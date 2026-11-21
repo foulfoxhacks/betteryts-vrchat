@@ -17,10 +17,13 @@ Turn on **Allow Untrusted URLs** first. Build & Test is fine for most of this, a
    should hold a *different* number from the one before (it rotates on every load). Rejoin again and it should still work.
 6. **Spotify:** repeat 2 to 5 with the Spotify tab and Link Spotify. Both libraries should be kept side by side; switching tabs
    loads the other one.
-7. **Unlink:** press it. The key should be `-1` (PlayerData can't delete keys) and the Link buttons come back. Rejoin: nothing loads.
-8. **Missing library:** set the key to a number that's not in use (e.g. 9999) in ClientSim, or wait out a replaced one.
+7. **TikTok:** until the server has `/vrc/link/start/tiktok`, pressing Link TikTok should show "TikTok linking isn't available yet"
+   (or the server's own message) and stay on the Link buttons, with no code screen and no stuck "Getting a code…".
+   Once the server supports it, repeat 2 to 5 with the TikTok tab. Its key is `betteryts.library.tiktok`.
+8. **Unlink:** press it. The key should be `-1` (PlayerData can't delete keys) and the Link buttons come back. Rejoin: nothing loads.
+9. **Missing library:** set the key to a number that's not in use (e.g. 9999) in ClientSim, or wait out a replaced one.
    The panel should say the playlists expired, reset the key to `-1`, and offer Link again.
-9. **Limits and errors:** a library with lots of songs should cap at 20 playlists / 1,000 songs. With Untrusted URLs off,
+10. **Limits and errors:** a library with lots of songs should cap at 20 playlists / 1,000 songs. With Untrusted URLs off,
    the panel should show the "turn on Allow Untrusted URLs" hint. Pressing Link many times quickly should give a 429 message, not a hang.
-10. **Alongside search:** search on the search panel while a code is showing. Both should keep working (VRChat queues the
+11. **Alongside search:** search on the search panel while a code is showing. Both should keep working (VRChat queues the
     downloads, so each one may wait a few seconds).

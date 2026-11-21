@@ -24,15 +24,17 @@ Full contract: [docs/vrchat-protocol.md](https://github.com/foulfoxhacks/bettery
 
 **Tools > FoulFoxHacks > Create BetterYTS Link Panel** adds a second panel where players bring their own playlists:
 
-1. They press **Link YouTube** or **Link Spotify**. The panel shows a short code and an address with a 10-minute countdown.
+1. They press **Link YouTube**, **Link Spotify** or **Link TikTok**. The panel shows a short code and an address with a 10-minute countdown.
 2. On their phone or PC they open the address, enter the code, sign in and pick playlists (up to 20 playlists, 1,000 songs).
 3. The panel picks them up (it checks every 5 seconds while the code is on screen) and lists them. Clicking a song plays it.
-4. The library number is saved in the player's PlayerData (`betteryts.library.youtube` / `betteryts.library.spotify`),
+4. The library number is saved in the player's PlayerData (`betteryts.library.youtube`, `betteryts.library.spotify`, `betteryts.library.tiktok`),
    so the playlists load again on their next visit. **Unlink** forgets it.
+
+TikTok needs the BetterYTS server to support it. Until then, **Link TikTok** says "TikTok linking isn't available yet" (or the server's own message).
 
 Anyone with a library number could load those playlists, so the panel tells players to send only playlists they're OK sharing.
 
-Udon can't build URLs, so the panel bakes `…/vrc/link/start/youtube`, `…/vrc/link/start/spotify` and 10,000
+Udon can't build URLs, so the panel bakes `…/vrc/link/start/youtube`, `…/vrc/link/start/spotify`, `…/vrc/link/start/tiktok` and 10,000
 `…/vrc/l/{n}` library URLs, and reuses the `…/vrc/p/{slot}` pool for polling and playing. The **Bake link URLs** button
 on the component re-bakes them (from the server set in the BetterYTS window).
 
@@ -41,6 +43,6 @@ on the component re-bakes them (from the server set in the BetterYTS window).
 | Component | Purpose |
 |---|---|
 | `BetterYTSSearch` | The panel logic. Hooked up by the editor tool; events `_OnSearchSubmit`, `_Next`, `_Back`, `_Cell0`…`_Cell11`. |
-| `BetterYTSLink` | The link panel logic. Events `_LinkYouTube`, `_LinkSpotify`, `_NewCode`, `_CancelCode`, `_ShowYouTube`, `_ShowSpotify`, `_Back`, `_PrevPage`, `_NextPage`, `_Reload`, `_Unlink`, `_Row0`…`_Row9`. |
+| `BetterYTSLink` | The link panel logic. Events `_LinkYouTube`, `_LinkSpotify`, `_LinkTikTok`, `_NewCode`, `_CancelCode`, `_ShowYouTube`, `_ShowSpotify`, `_ShowTikTok`, `_Back`, `_PrevPage`, `_NextPage`, `_Reload`, `_Unlink`, `_Row0`…`_Row9`. |
 | `FFHUrlPool` (core) | The baked URL pool. |
 | `FFHVideoTarget` (core) | Where results play. Use the ProTV adapter, `FFHVrcPlayerTarget`, or `FFHUdonEventTarget`. |
