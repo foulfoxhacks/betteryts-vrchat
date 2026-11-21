@@ -9,16 +9,19 @@ namespace FoulFoxHacks.BetterYTS.Editor
 {
     /// <summary>
     /// Bakes every URL a <see cref="BetterYTSLink"/> needs (Udon can't build URLs at runtime):
-    /// the three start URLs, the saved-library pool <c>{base}/vrc/l/{n}</c> and, if it's empty,
+    /// the three start URLs, <c>{base}/vrc/forget</c>, the two saved-library pools
+    /// <c>{base}/vrc/l/{a}</c> and <c>{base}/vrc/k/{b}</c> (linking protocol v2) and, if it's empty,
     /// the shared slot pool <c>{base}/vrc/p/{slot}</c>.
     /// </summary>
     public static class BetterYTSLinkBaker
     {
-        /// <summary>Must match LIBRARY_SLOTS on the server.</summary>
+        /// <summary>Size of each key half (0 … 9999) on the server.</summary>
         public const int LibrarySlots = 10000;
 
         public static string StartUrl(string baseUrl, string service) => baseUrl.TrimEnd('/') + "/vrc/link/start/" + service;
         public static string LibraryPattern(string baseUrl) => baseUrl.TrimEnd('/') + "/vrc/l/{slot}";
+        public static string KeyPattern(string baseUrl) => baseUrl.TrimEnd('/') + "/vrc/k/{slot}";
+        public static string ForgetUrl(string baseUrl) => baseUrl.TrimEnd('/') + "/vrc/forget";
         public static string PoolPattern(string baseUrl) => baseUrl.TrimEnd('/') + "/vrc/p/{slot}";
 
         /// <param name="poolSize">Slot pool size to bake if <c>link.pool</c> is empty (BetterYTS uses 20000).</param>
@@ -30,10 +33,15 @@ namespace FoulFoxHacks.BetterYTS.Editor
             link.startYouTubeUrl = new VRCUrl(StartUrl(baseUrl, "youtube"));
             link.startSpotifyUrl = new VRCUrl(StartUrl(baseUrl, "spotify"));
             link.startTikTokUrl = new VRCUrl(StartUrl(baseUrl, "tiktok"));
+            link.forgetUrl = new VRCUrl(ForgetUrl(baseUrl));
 
             if (link.libraryPool != null)
             {
                 FFHUrlPoolBaker.Bake(link.libraryPool, LibraryPattern(baseUrl), LibrarySlots);
+            }
+            if (link.keyPool != null)
+            {
+                FFHUrlPoolBaker.Bake(link.keyPool, KeyPattern(baseUrl), LibrarySlots);
             }
             if (link.pool != null && link.pool.GetSize() == 0)
             {
@@ -54,9 +62,13 @@ namespace FoulFoxHacks.BetterYTS.Editor
                 link.startSpotifyUrl == null || string.IsNullOrEmpty(link.startSpotifyUrl.Get()) ||
                 link.startTikTokUrl == null || string.IsNullOrEmpty(link.startTikTokUrl.Get()))
                 return "Start URLs aren't baked.";
+            if (link.forgetUrl == null || string.IsNullOrEmpty(link.forgetUrl.Get())) return "The Unlink URL (…/vrc/forget) isn't baked.";
             if (link.libraryPool == null) return "No saved-library pool is assigned.";
             if (link.libraryPool.GetSize() != LibrarySlots) return $"The saved-library pool has {link.libraryPool.GetSize():N0} slots; it needs {LibrarySlots:N0}.";
-            if (link.libraryPool == link.pool) return "The saved-library pool and the slot pool must be different objects.";
+            if (link.keyPool == null) return "No saved-library key pool (…/vrc/k/{slot}) is assigned.";
+            if (link.keyPool.GetSize() != LibrarySlots) return $"The key pool has {link.keyPool.GetSize():N0} slots; it needs {LibrarySlots:N0}.";
+            if (link.libraryPool == link.pool || link.keyPool == link.pool || link.keyPool == link.libraryPool)
+                return "The slot pool, saved-library pool and key pool must be three different objects.";
             if (link.pool == null || link.pool.GetSize() == 0) return "No slot pool (…/vrc/p/{slot}) is assigned or baked.";
             return null;
         }

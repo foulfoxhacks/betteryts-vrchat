@@ -12,14 +12,18 @@ using VRC.Udon.Common.Interfaces;
 namespace FoulFoxHacks.BetterYTS
 {
     /// <summary>
-    /// BetterYTS in-world account linking and saved libraries (protocol v1, "Linking":
+    /// BetterYTS in-world account linking and saved libraries (linking protocol v2:
     /// https://github.com/foulfoxhacks/betteryts/blob/main/docs/vrchat-protocol.md#linking).
     ///
-    /// Works like a TV sign-in: <c>Link YouTube</c> / <c>Link Spotify</c> / <c>Link TikTok</c> loads a baked start URL
-    /// that returns an activation code. The player types it at the shown address on their phone,
-    /// picks playlists, and this script polls <c>pool[poll]</c> until they arrive. The library
-    /// number is kept in PlayerData so the playlists come back on the next visit via the baked
-    /// <c>libraryPool</c> (<c>…/vrc/l/{n}</c>). Every load hands out a NEW number, saved at once.
+    /// Works like a TV sign-in: <c>Link YouTube</c> / <c>Link Spotify</c> / <c>Link TikTok</c> loads a
+    /// baked start URL that returns an activation code. The player enters it at the shown address on
+    /// their phone, picks what to send and whether to save it, and this script polls <c>pool[poll]</c>
+    /// until it arrives.
+    ///
+    /// Saving is optional. A saved library comes with a two-part key (a, b) kept in PlayerData.
+    /// Next visit: load <c>…/vrc/l/{a}</c>, then <c>…/vrc/k/{b}</c> from the same client within 60 s. Every
+    /// load hands out a NEW key, saved at once. Unlink loads <c>…/vrc/forget</c> right after a load or
+    /// link, which deletes the library on the server.
     ///
     /// Everything is local to the player. Bake the URLs with the inspector button, or build a
     /// whole panel with Tools > FoulFoxHacks > Create BetterYTS Link Panel.
@@ -27,7 +31,7 @@ namespace FoulFoxHacks.BetterYTS
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class BetterYTSLink : UdonSharpBehaviour
     {
-        private const int ProtocolVersion = 1;
+        private const int ProtocolVersion = 2;
         public const int ServiceYouTube = 0;
         public const int ServiceSpotify = 1;
         public const int ServiceTikTok = 2;
@@ -35,12 +39,15 @@ namespace FoulFoxHacks.BetterYTS
         public const int MaxRows = 10;
         private const int MaxPlaylists = 20;
         private const int MaxTracks = 1000;
-        private const float PollSeconds = 5.5f; // String downloads are limited to one per 5 s.
+        private const float StepSeconds = 5.5f; // String downloads are limited to one per 5 s.
+        private const float ForgetWindow = 50f; // The server remembers the last load for 60 s.
 
         private const int ReqNone = 0;
         private const int ReqStart = 1;
         private const int ReqPoll = 2;
-        private const int ReqLibrary = 3;
+        private const int ReqLibraryA = 3;
+        private const int ReqLibraryB = 4;
+        private const int ReqForget = 5;
 
         private const int ViewLink = 0;
         private const int ViewCode = 1;
@@ -54,17 +61,20 @@ namespace FoulFoxHacks.BetterYTS
         public VRCUrl startSpotifyUrl;
         [Tooltip("…/vrc/link/start/tiktok")]
         public VRCUrl startTikTokUrl;
+        [Tooltip("…/vrc/forget: deletes the library this client just loaded.")]
+        public VRCUrl forgetUrl;
         [Tooltip("Baked BetterYTS URL pool (…/vrc/p/{slot}, 20000 slots). Used for polling and playing.")]
         public FFHUrlPool pool;
-        [Tooltip("Baked saved-library URLs (…/vrc/l/{slot}, 10000 slots).")]
+        [Tooltip("Saved library, step 1 (…/vrc/l/{slot}, 10000 slots).")]
         public FFHUrlPool libraryPool;
+        [Tooltip("Saved library, step 2 (…/vrc/k/{slot}, 10000 slots).")]
+        public FFHUrlPool keyPool;
         [Tooltip("Where songs play: ProTV adapter, VRChat player target, or Udon event target.")]
         public FFHVideoTarget videoTarget;
 
-        [Header("PlayerData keys")]
-        public string youTubeKey = "betteryts.library.youtube";
-        public string spotifyKey = "betteryts.library.spotify";
-        public string tiktokKey = "betteryts.library.tiktok";
+        [Header("PlayerData")]
+        [Tooltip("Keys are {prefix}{service}.a and {prefix}{service}.b, e.g. betteryts.lib.youtube.a")]
+        public string playerDataPrefix = "betteryts.lib.";
 
         [Header("Panels")]
         [Tooltip("Shown when the selected service has no saved library: the Link buttons and privacy line.")]
@@ -101,15 +111,17 @@ namespace FoulFoxHacks.BetterYTS
         public TextMeshProUGUI privacyText;
 
         [Header("Text")]
-        public string privacyLine = "Only send playlists you're OK sharing: anyone with your library number could load them.";
+        public string privacyLine = "Only send what you're OK sharing. Saving for your next visit is optional and lasts 30 days; Unlink deletes it. Privacy: yts.foulfoxhacks.dev/privacy";
+        public string manageAddress = "yts.foulfoxhacks.dev/?view=link#manage";
         public string untrustedUrlsHint = "Couldn't reach BetterYTS. Turn on Allow Untrusted URLs in Settings > Comfort & Safety, then try again.";
 
         private IUdonEventReceiver _receiver;
         private bool _restored;
 
-        // Saved library numbers (-1 = none), indexed by service.
-        private int[] _saved;
-        // Loaded libraries, indexed by service (null = not loaded yet).
+        // Saved key halves (-1 = none), indexed by service.
+        private int[] _savedA;
+        private int[] _savedB;
+        // Loaded libraries, indexed by service (null = not loaded).
         private DataList _ytPlaylists;
         private DataList _spPlaylists;
         private DataList _ttPlaylists;
@@ -118,10 +130,17 @@ namespace FoulFoxHacks.BetterYTS
         private int _service = ServiceYouTube;
         private int _view = ViewLink;
 
-        // Request in flight
+        // Request in flight, and the next step of a multi-step load/unlink.
         private int _request = ReqNone;
         private int _requestService;
         private float _lastRequestTime = -100f;
+        private int _nextStep = ReqNone;
+        private int _nextStepService;
+        private bool _unlinkAfterLoad;
+
+        // What this client last received (the server's /vrc/forget acts on it).
+        private int _lastReceivedService = -1;
+        private float _lastReceivedTime = -1000f;
 
         // Activation code
         private bool _codeActive;
@@ -137,7 +156,8 @@ namespace FoulFoxHacks.BetterYTS
         private void Start()
         {
             _receiver = (IUdonEventReceiver)this;
-            _saved = new int[] { -1, -1, -1 };
+            _savedA = new int[] { -1, -1, -1 };
+            _savedB = new int[] { -1, -1, -1 };
             _accounts = new string[] { "", "", "" };
             if (privacyText != null) privacyText.text = privacyLine;
             ShowView(ViewBusy);
@@ -150,15 +170,17 @@ namespace FoulFoxHacks.BetterYTS
         {
             if (player == null || !player.isLocal) return;
             _restored = true;
-            _saved[ServiceYouTube] = ReadSaved(player, youTubeKey);
-            _saved[ServiceSpotify] = ReadSaved(player, spotifyKey);
-            _saved[ServiceTikTok] = ReadSaved(player, tiktokKey);
+            for (int s = 0; s < 3; s++)
+            {
+                _savedA[s] = ReadSaved(player, KeyFor(s) + ".a");
+                _savedB[s] = ReadSaved(player, KeyFor(s) + ".b");
+            }
             // Open on the first service with a saved library (YouTube if none).
             _service = ServiceYouTube;
-            if (_saved[ServiceYouTube] < 0)
+            if (!HasSaved(ServiceYouTube))
             {
-                if (_saved[ServiceSpotify] >= 0) _service = ServiceSpotify;
-                else if (_saved[ServiceTikTok] >= 0) _service = ServiceTikTok;
+                if (HasSaved(ServiceSpotify)) _service = ServiceSpotify;
+                else if (HasSaved(ServiceTikTok)) _service = ServiceTikTok;
             }
             SetStatus("");
             Refresh();
@@ -171,11 +193,23 @@ namespace FoulFoxHacks.BetterYTS
             return -1;
         }
 
-        private void Save(int service, int library)
+        private bool HasSaved(int service)
         {
-            _saved[service] = library;
+            return _savedA[service] >= 0 && _savedB[service] >= 0;
+        }
+
+        private void Save(int service, int a, int b)
+        {
+            _savedA[service] = a;
+            _savedB[service] = b;
             // PlayerData has no delete, so -1 means "no library".
-            PlayerData.SetInt(KeyFor(service), library);
+            PlayerData.SetInt(KeyFor(service) + ".a", a);
+            PlayerData.SetInt(KeyFor(service) + ".b", b);
+        }
+
+        private void ClearSaved(int service)
+        {
+            Save(service, -1, -1);
         }
 
         // ------------------------------------------------------------------ UI events
@@ -198,22 +232,48 @@ namespace FoulFoxHacks.BetterYTS
         public void _ShowSpotify() { SelectService(ServiceSpotify); }
         public void _ShowTikTok() { SelectService(ServiceTikTok); }
 
-        /// <summary>Forget the saved library for the selected service.</summary>
+        /// <summary>Unlink the selected service: delete its library on BetterYTS, then forget the key.</summary>
         public void _Unlink()
         {
             if (!_restored) return;
-            Save(_service, -1);
-            SetPlaylists(_service, null, "");
-            _playlist = -1;
-            _page = 0;
-            SetStatus("Unlinked. Your playlists are no longer saved in this world.");
-            Refresh();
+            if (Busy()) { SetStatus("One moment…"); return; }
+            int service = _service;
+
+            // The server deletes what this client last received, if that was within 60 s.
+            if (_lastReceivedService == service && Time.realtimeSinceStartup - _lastReceivedTime < ForgetWindow)
+            {
+                SetStatus("Unlinking…");
+                Schedule(ReqForget, service);
+                return;
+            }
+            // Otherwise load it first (the key rotates), then forget it.
+            if (HasSaved(service))
+            {
+                _unlinkAfterLoad = true;
+                LoadLibrary(service);
+                return;
+            }
+            // Nothing saved and nothing recent: only this visit's copy to drop.
+            UnlinkLocal(service, "Unlinked. Nothing was saved on BetterYTS.");
         }
 
-        /// <summary>Reload the selected library (fresh slots; uses one library load).</summary>
+        /// <summary>Reload the selected library (fresh slots and a new key).</summary>
         public void _Reload()
         {
-            if (_saved[_service] >= 0) LoadLibrary(_service);
+            if (HasSaved(_service)) LoadLibrary(_service);
+            else SetStatus("This list is only for this visit, so there's nothing to reload.");
+        }
+
+        /// <summary>Show the key the player can use on the site to view, download or delete their library.</summary>
+        public void _ShowKey()
+        {
+            if (!HasSaved(_service))
+            {
+                SetStatus("Nothing is saved for " + ServiceName(_service) + ", so there's no key.");
+                return;
+            }
+            SetStatus("Your key: " + Pad4(_savedA[_service]) + "-" + Pad4(_savedB[_service])
+                + ". Enter it at " + manageAddress + " to view, download or delete your saved list. It changes every visit; don't share it.");
         }
 
         public void _Back()
@@ -248,6 +308,11 @@ namespace FoulFoxHacks.BetterYTS
 
         // ------------------------------------------------------------------ Flow
 
+        private bool Busy()
+        {
+            return _request != ReqNone || _nextStep != ReqNone;
+        }
+
         private void SelectService(int service)
         {
             _service = service;
@@ -264,13 +329,13 @@ namespace FoulFoxHacks.BetterYTS
             if (_codeActive) { ShowView(ViewCode); return; }
             if (!_restored) { ShowView(ViewBusy); return; }
             if (GetPlaylists(_service) != null) { ShowView(ViewLibrary); DrawBrowser(); return; }
-            if (_saved[_service] >= 0) { LoadLibrary(_service); return; }
+            if (HasSaved(_service)) { LoadLibrary(_service); return; }
             ShowView(ViewLink);
         }
 
         private void StartLink(int service)
         {
-            if (_request != ReqNone) { SetStatus("One moment…"); return; }
+            if (Busy()) { SetStatus("One moment…"); return; }
             VRCUrl url = StartUrlFor(service);
             if (url == null || url.Get().Length == 0)
             {
@@ -286,20 +351,28 @@ namespace FoulFoxHacks.BetterYTS
             Send(ReqStart, service, url);
         }
 
+        /// <summary>Step 1 of a saved-library load: …/vrc/l/{a}. Step 2 follows in _RunNextStep.</summary>
         private void LoadLibrary(int service)
         {
-            if (_request != ReqNone) return;
-            if (libraryPool == null) { SetStatus("No saved-library URLs are linked to this panel."); ShowView(ViewLink); return; }
-            VRCUrl url = libraryPool.GetUrl(_saved[service]);
-            if (url == null)
+            if (Busy()) return;
+            if (libraryPool == null || keyPool == null)
             {
-                SetStatus("This panel's library URLs need re-baking (10000 slots).");
+                _unlinkAfterLoad = false;
+                SetStatus("This panel's saved-library URLs aren't baked. Ask the world creator to press Bake.");
+                ShowView(ViewLink);
+                return;
+            }
+            VRCUrl url = libraryPool.GetUrl(_savedA[service]);
+            if (url == null || keyPool.GetUrl(_savedB[service]) == null)
+            {
+                _unlinkAfterLoad = false;
+                SetStatus("This panel's library URLs need re-baking (10000 slots each).");
                 ShowView(ViewLink);
                 return;
             }
             ShowView(ViewBusy);
-            SetStatus("Loading your " + ServiceName(service) + " playlists…");
-            Send(ReqLibrary, service, url);
+            SetStatus(_unlinkAfterLoad ? "Unlinking…" : "Loading your " + ServiceName(service) + " list…");
+            Send(ReqLibraryA, service, url);
         }
 
         private void Send(int kind, int service, VRCUrl url)
@@ -308,6 +381,35 @@ namespace FoulFoxHacks.BetterYTS
             _requestService = service;
             _lastRequestTime = Time.realtimeSinceStartup;
             VRCStringDownloader.LoadUrl(url, _receiver);
+        }
+
+        /// <summary>Queue the next request of a multi-step load or unlink, after the download gap.</summary>
+        private void Schedule(int kind, int service)
+        {
+            _nextStep = kind;
+            _nextStepService = service;
+            float wait = StepSeconds - (Time.realtimeSinceStartup - _lastRequestTime);
+            SendCustomEventDelayedSeconds(nameof(_RunNextStep), Mathf.Max(0.1f, wait));
+        }
+
+        public void _RunNextStep()
+        {
+            int kind = _nextStep;
+            int service = _nextStepService;
+            if (kind == ReqNone) return;
+            if (_request != ReqNone) { SendCustomEventDelayedSeconds(nameof(_RunNextStep), 1f); return; }
+            _nextStep = ReqNone;
+
+            VRCUrl url = null;
+            if (kind == ReqLibraryB && keyPool != null) url = keyPool.GetUrl(_savedB[service]);
+            else if (kind == ReqForget) url = forgetUrl;
+            if (url == null || url.Get().Length == 0)
+            {
+                _unlinkAfterLoad = false;
+                Failed(kind, "This panel's link URLs need re-baking. Ask the world creator to press Bake.");
+                return;
+            }
+            Send(kind, service, url);
         }
 
         /// <summary>Runs once a second while a code is on screen: countdown and polling.</summary>
@@ -326,7 +428,7 @@ namespace FoulFoxHacks.BetterYTS
             int s = secs % 60;
             if (countdownText != null) countdownText.text = "Code expires in " + (secs / 60) + ":" + (s < 10 ? "0" : "") + s;
 
-            if (_request == ReqNone && Time.realtimeSinceStartup - _lastRequestTime >= PollSeconds && pool != null)
+            if (!Busy() && Time.realtimeSinceStartup - _lastRequestTime >= StepSeconds && pool != null)
             {
                 VRCUrl url = pool.GetUrl(_pollSlot);
                 if (url != null) Send(ReqPoll, _codeService, url);
@@ -345,7 +447,7 @@ namespace FoulFoxHacks.BetterYTS
             if (newCodeButton != null) newCodeButton.gameObject.SetActive(false);
             if (countdownText != null) countdownText.gameObject.SetActive(true);
             ShowView(ViewCode);
-            SetStatus("On your phone or PC, open the address above and enter the code. Waiting for your playlists…");
+            SetStatus("On your phone or PC, open the address above and enter the code. Waiting…");
             if (!_ticking)
             {
                 _ticking = true;
@@ -374,6 +476,7 @@ namespace FoulFoxHacks.BetterYTS
             DataToken root;
             if (!VRCJson.TryDeserializeFromJson(result.Result, out root) || root.TokenType != TokenType.DataDictionary)
             {
+                if (kind != ReqPoll) _unlinkAfterLoad = false;
                 Failed(kind, "BetterYTS sent something unexpected. Try again.");
                 return;
             }
@@ -382,14 +485,20 @@ namespace FoulFoxHacks.BetterYTS
             DataToken version;
             if (data.TryGetValue("v", TokenType.Double, out version) && (int)version.Double != ProtocolVersion)
             {
-                Failed(kind, "This panel needs an update (BetterYTS protocol changed).");
+                _unlinkAfterLoad = false;
+                Failed(kind, "This panel needs an update (BetterYTS linking protocol changed).");
                 return;
             }
             DataToken ok;
             if (data.TryGetValue("ok", TokenType.Boolean, out ok) && !ok.Boolean)
             {
+                // Linking errors (rate limits included) come back as HTTP 200 { ok:false, error }.
                 string err = ReadString(data, "error");
                 if (kind == ReqStart && service == ServiceTikTok) err = TikTokStartError(err);
+                if (kind == ReqPoll) return; // Keep polling until the code expires.
+                bool unlinking = _unlinkAfterLoad || kind == ReqForget;
+                _unlinkAfterLoad = false;
+                if (unlinking) err = CouldntDelete(service, err);
                 Failed(kind, err.Length > 0 ? err : "BetterYTS couldn't do that. Try again.");
                 return;
             }
@@ -405,18 +514,50 @@ namespace FoulFoxHacks.BetterYTS
                 if (status == "expired") { CodeExpired(); return; }
                 return;
             }
-            if (kind == ReqLibrary)
+            if (kind == ReqLibraryA)
             {
-                if (status == "linked") { OnLinked(service, data, false); return; }
+                // Step 1 never says whether the key exists; step 2 must follow from this client within 60 s.
+                if (status == "next") { Schedule(ReqLibraryB, service); return; }
+                _unlinkAfterLoad = false;
+                Failed(kind, "BetterYTS sent something unexpected. Try again.");
+                return;
+            }
+            if (kind == ReqLibraryB)
+            {
+                if (status == "linked")
+                {
+                    if (_unlinkAfterLoad)
+                    {
+                        _unlinkAfterLoad = false;
+                        // Keep the new key until the delete is confirmed, so a failed delete can be retried.
+                        SaveKeyFrom(service, data);
+                        MarkReceived(service);
+                        Schedule(ReqForget, service);
+                        return;
+                    }
+                    OnLinked(service, data, false);
+                    return;
+                }
                 if (status == "missing")
                 {
-                    Save(service, -1);
+                    bool unlinking = _unlinkAfterLoad;
+                    _unlinkAfterLoad = false;
+                    ClearSaved(service);
                     SetPlaylists(service, null, "");
-                    SetStatus("Your saved " + ServiceName(service) + " playlists expired. Link again to bring them back.");
+                    if (unlinking) { UnlinkLocal(service, "Unlinked. Nothing was saved on BetterYTS any more."); return; }
+                    SetStatus("Your saved " + ServiceName(service) + " list expired or was deleted. Link again to bring it back.");
                     if (service == _service) Refresh();
                     return;
                 }
+                _unlinkAfterLoad = false;
                 Failed(kind, "BetterYTS sent something unexpected. Try again.");
+                return;
+            }
+            if (kind == ReqForget)
+            {
+                if (status == "forgotten") { UnlinkLocal(service, "Unlinked. Your saved " + ServiceName(service) + " list was deleted from BetterYTS."); return; }
+                if (status == "nothing") { UnlinkLocal(service, "Unlinked. Nothing was saved on BetterYTS."); return; }
+                Failed(kind, CouldntDelete(service, ""));
             }
         }
 
@@ -427,19 +568,19 @@ namespace FoulFoxHacks.BetterYTS
             _request = ReqNone;
             int code = result.ErrorCode;
             if (kind == ReqPoll) return; // Transient; keep polling until the code expires.
-            // BetterYTS errors carry { ok:false, error:"…" }. Show that when VRChat passes the body on.
+
+            bool unlinking = _unlinkAfterLoad || kind == ReqForget;
+            _unlinkAfterLoad = false;
             string serverError = ErrorFromBody(result.Result);
             bool unreachable = code == 0 || code == 401 || code == 403;
-            if (kind == ReqStart && service == ServiceTikTok && !unreachable && code != 429)
-            {
-                // The server may not offer TikTok yet (no endpoint, or the app isn't approved).
-                Failed(kind, TikTokStartError(serverError));
-                return;
-            }
-            if (serverError.Length > 0) Failed(kind, serverError);
-            else if (code == 0 || code == 401 || code == 403) Failed(kind, untrustedUrlsHint);
-            else if (code == 429) Failed(kind, "BetterYTS is busy for this connection. Try again in a few minutes.");
-            else Failed(kind, "BetterYTS error " + code + ". Try again in a moment.");
+            string message;
+            if (kind == ReqStart && service == ServiceTikTok && !unreachable && code != 429) message = TikTokStartError(serverError);
+            else if (serverError.Length > 0) message = serverError;
+            else if (unreachable) message = untrustedUrlsHint;
+            else if (code == 429) message = "BetterYTS is busy for this connection. Try again in a few minutes.";
+            else message = "BetterYTS error " + code + ". Try again in a moment.";
+            if (unlinking) message = CouldntDelete(service, message);
+            Failed(kind, message);
         }
 
         /// <summary>
@@ -450,6 +591,14 @@ namespace FoulFoxHacks.BetterYTS
         {
             if (serverError == null || serverError.Length == 0 || serverError == "Unknown service") return TikTokUnavailable;
             return serverError;
+        }
+
+        /// <summary>A failed unlink keeps the key, so the player can retry or delete it on the site.</summary>
+        private string CouldntDelete(int service, string reason)
+        {
+            string msg = "Couldn't delete your list from BetterYTS" + (reason != null && reason.Length > 0 ? " (" + reason + ")" : "") + ". Try Unlink again";
+            if (HasSaved(service)) msg += ", or delete it at " + manageAddress + " with key " + Pad4(_savedA[service]) + "-" + Pad4(_savedB[service]);
+            return msg + ".";
         }
 
         /// <summary>The "error" text of a BetterYTS error body, or "" if there's no usable body.</summary>
@@ -463,10 +612,24 @@ namespace FoulFoxHacks.BetterYTS
 
         private void Failed(int kind, string message)
         {
+            _nextStep = ReqNone;
             SetStatus(message);
             if (kind == ReqPoll) return;
-            if (kind == ReqLibrary && GetPlaylists(_service) == null) { ShowView(ViewLink); UpdateTabs(); return; }
+            bool library = kind == ReqLibraryA || kind == ReqLibraryB || kind == ReqForget;
+            if (library && GetPlaylists(_service) == null) { ShowView(ViewLink); UpdateTabs(); return; }
+            if (library) { ShowView(ViewLibrary); DrawBrowser(); UpdateTabs(); return; }
             Refresh();
+        }
+
+        private void UnlinkLocal(int service, string message)
+        {
+            ClearSaved(service);
+            SetPlaylists(service, null, "");
+            if (_lastReceivedService == service) _lastReceivedService = -1;
+            _playlist = -1;
+            _page = 0;
+            SetStatus(message);
+            if (service == _service) { UpdateTabs(); ShowView(ViewLink); }
         }
 
         private void OnStart(int service, DataDictionary data)
@@ -477,15 +640,33 @@ namespace FoulFoxHacks.BetterYTS
             if (code.Length == 0 || poll < 0) { Failed(ReqStart, "BetterYTS sent something unexpected. Try again."); return; }
             if (pool.GetUrl(poll) == null) { Failed(ReqStart, "This world's URL pool is too small. Re-bake it with 20000 slots."); return; }
             string url = ReadString(data, "url");
-            if (url.Length == 0) url = "yts.foulfoxhacks.dev/inworld/" + ServiceSlug(service) + "/auth";
+            if (url.Length == 0) url = "yts.foulfoxhacks.dev/inworld/" + ServiceSlug(service) + (service == ServiceTikTok ? "" : "/auth");
             ShowCode(service, code, url, ReadInt(data, "expiresIn", 600), poll);
+        }
+
+        /// <summary>Saves library {a, b} if present. Returns false for null ("just this visit").</summary>
+        private bool SaveKeyFrom(int service, DataDictionary data)
+        {
+            DataToken libToken;
+            if (!data.TryGetValue("library", TokenType.DataDictionary, out libToken)) return false;
+            int a = ReadInt(libToken.DataDictionary, "a", -1);
+            int b = ReadInt(libToken.DataDictionary, "b", -1);
+            if (a < 0 || b < 0) return false;
+            Save(service, a, b);
+            return true;
+        }
+
+        private void MarkReceived(int service)
+        {
+            _lastReceivedService = service;
+            _lastReceivedTime = Time.realtimeSinceStartup;
         }
 
         private void OnLinked(int service, DataDictionary data, bool fromCode)
         {
-            // Save the (new) library number straight away: the old one stops working once this one is used.
-            int library = ReadInt(data, "library", -1);
-            if (library >= 0) Save(service, library);
+            // Save the (new) key straight away: the old one stops working once this one is used.
+            bool saved = SaveKeyFrom(service, data);
+            MarkReceived(service);
 
             DataToken listToken;
             DataList playlists = data.TryGetValue("playlists", TokenType.DataList, out listToken) ? listToken.DataList : new DataList();
@@ -497,10 +678,12 @@ namespace FoulFoxHacks.BetterYTS
             UpdateTabs();
             ShowView(ViewLibrary);
             DrawBrowser();
+            if (!fromCode) { SetStatus(""); return; }
             int count = Mathf.Min(playlists.Count, MaxPlaylists);
-            SetStatus(fromCode
-                ? "Linked! " + count + (count == 1 ? " playlist" : " playlists") + " saved for your next visit."
-                : "");
+            string what = count + (count == 1 ? " list" : " lists");
+            SetStatus(saved
+                ? "Linked! " + what + ", saved for your next visit (30 days). Unlink deletes it."
+                : "Linked! " + what + " for this visit only. Nothing is saved.");
         }
 
         // ------------------------------------------------------------------ Browser
@@ -512,6 +695,7 @@ namespace FoulFoxHacks.BetterYTS
 
             string account = _accounts[_service];
             string who = ServiceName(_service) + (account.Length > 0 ? " · " + account : "");
+            if (!HasSaved(_service)) who += " · this visit only";
             int total = ItemCount();
             int pages = PageCount();
             if (_page >= pages) _page = pages - 1;
@@ -520,6 +704,7 @@ namespace FoulFoxHacks.BetterYTS
 
             DataDictionary pl = _playlist >= 0 ? GetPlaylist(_playlist) : null;
             DataList tracks = pl != null ? GetTracks(pl) : null;
+            bool tiktok = _service == ServiceTikTok;
 
             if (headerText != null)
             {
@@ -544,7 +729,7 @@ namespace FoulFoxHacks.BetterYTS
                     {
                         title = ReadString(p, "name");
                         int n = TrackCountFor(i);
-                        detail = n + (n == 1 ? " song" : " songs");
+                        detail = n + (tiktok ? (n == 1 ? " video" : " videos") : (n == 1 ? " song" : " songs"));
                     }
                 }
                 else
@@ -552,9 +737,15 @@ namespace FoulFoxHacks.BetterYTS
                     DataToken t;
                     if (tracks.TryGetValue(i, TokenType.DataDictionary, out t))
                     {
-                        title = ReadString(t.DataDictionary, "title");
-                        detail = ReadString(t.DataDictionary, "channel");
-                        if (ReadInt(t.DataDictionary, "slot", -1) < 0) detail = "Unavailable";
+                        DataDictionary track = t.DataDictionary;
+                        title = ReadString(track, "title");
+                        detail = ReadString(track, "channel");
+                        if (ReadInt(track, "slot", -1) < 0)
+                        {
+                            int secs = ReadInt(track, "duration", -1);
+                            string length = secs >= 0 ? (secs / 60) + ":" + (secs % 60 < 10 ? "0" : "") + (secs % 60) : "";
+                            detail = tiktok ? (length.Length > 0 ? length + " · " : "") + "on TikTok" : "Unavailable";
+                        }
                     }
                 }
                 if (r < rowTitles.Length && rowTitles[r] != null) rowTitles[r].text = title;
@@ -565,7 +756,7 @@ namespace FoulFoxHacks.BetterYTS
             if (prevPageButton != null) prevPageButton.interactable = _page > 0;
             if (nextPageButton != null) nextPageButton.interactable = _page < pages - 1;
             if (pageText != null) pageText.text = pages > 1 ? (_page + 1) + " / " + pages : "";
-            if (total == 0) SetStatus(pl != null ? "This playlist is empty." : "No playlists in this library.");
+            if (total == 0) SetStatus(pl != null ? "This list is empty." : "Nothing in this list.");
         }
 
         private void ClickRow(int r)
@@ -589,6 +780,12 @@ namespace FoulFoxHacks.BetterYTS
             if (tracks == null || !tracks.TryGetValue(i, TokenType.DataDictionary, out t)) return;
             string title = ReadString(t.DataDictionary, "title");
             int slot = ReadInt(t.DataDictionary, "slot", -1);
+            if (slot < 0 && _service == ServiceTikTok)
+            {
+                // TikTok gives no playable file, and BetterYTS doesn't download or re-host TikTok videos.
+                SetStatus("TikTok videos can't play in VRChat. Watch \"" + title + "\" in the TikTok app.");
+                return;
+            }
             if (videoTarget == null) { SetStatus("No video player is linked to this panel."); return; }
             if (pool == null) { SetStatus("No URL pool is linked to this panel."); return; }
             if (slot < 0) { SetStatus("That song isn't available right now. Try Reload."); return; }
@@ -688,11 +885,10 @@ namespace FoulFoxHacks.BetterYTS
             return "youtube";
         }
 
+        /// <summary>PlayerData key stem for a service, e.g. "betteryts.lib.youtube" (+ ".a" / ".b").</summary>
         private string KeyFor(int service)
         {
-            if (service == ServiceSpotify) return spotifyKey;
-            if (service == ServiceTikTok) return tiktokKey;
-            return youTubeKey;
+            return playerDataPrefix + ServiceSlug(service);
         }
 
         private VRCUrl StartUrlFor(int service)
@@ -700,6 +896,13 @@ namespace FoulFoxHacks.BetterYTS
             if (service == ServiceSpotify) return startSpotifyUrl;
             if (service == ServiceTikTok) return startTikTokUrl;
             return startYouTubeUrl;
+        }
+
+        private string Pad4(int n)
+        {
+            string s = n.ToString();
+            while (s.Length < 4) s = "0" + s;
+            return s;
         }
 
         private void SetStatus(string message)

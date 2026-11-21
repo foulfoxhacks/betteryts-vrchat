@@ -57,7 +57,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             var linkPanel = Child(body, "Link Panel");
             Stretch(linkPanel);
             var linkIntro = Tmp(linkPanel, "Intro",
-                "Bring your own playlists into this world.\nLink once and they'll be here next time you visit.",
+                "Bring your own playlists into this world.\nIt's for this visit only, unless you choose to save it.",
                 38, Cream, TextAlignmentOptions.Center, FontStyles.Normal);
             linkIntro.enableWordWrapping = true;
             Anchor(linkIntro.rectTransform, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -260), new Vector2(0, -40));
@@ -131,6 +131,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             var next = MakeButton(libPanel, "Next Page Button", "›", new Vector2(0, 0), new Vector2(250, 10), new Vector2(360, 90));
             var page = Tmp(libPanel, "Page", "", 26, Muted, TextAlignmentOptions.Center, FontStyles.Normal);
             Anchor(page.rectTransform, new Vector2(0, 0), new Vector2(0, 0), new Vector2(110, 10), new Vector2(250, 90));
+            var key = MakeButton(libPanel, "My Key Button", "My key", new Vector2(1, 0), new Vector2(-680, 10), new Vector2(-480, 90));
             var reload = MakeButton(libPanel, "Reload Button", "Reload", new Vector2(1, 0), new Vector2(-460, 10), new Vector2(-240, 90));
             var unlink = MakeButton(libPanel, "Unlink Button", "Unlink", new Vector2(1, 0), new Vector2(-220, 10), new Vector2(0, 90));
 
@@ -146,6 +147,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             FFHUrlPool pool = FindSlotPool(baseUrl);
             if (pool == null) pool = MakePool(root.transform, "URL Pool", BetterYTSLinkBaker.PoolPattern(baseUrl), poolSize);
             FFHUrlPool libraryPool = MakePool(root.transform, "Library URL Pool", BetterYTSLinkBaker.LibraryPattern(baseUrl), 0);
+            FFHUrlPool keyPool = MakePool(root.transform, "Library Key URL Pool", BetterYTSLinkBaker.KeyPattern(baseUrl), 0);
 
             var target = Object.FindObjectOfType<BetterYTSSearch>() is BetterYTSSearch search && search.videoTarget != null
                 ? search.videoTarget
@@ -154,6 +156,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             var link = UdonSharpUndo.AddComponent<BetterYTSLink>(root);
             link.pool = pool;
             link.libraryPool = libraryPool;
+            link.keyPool = keyPool;
             link.videoTarget = target;
             link.linkPanel = linkPanel.gameObject;
             link.codePanel = codePanel.gameObject;
@@ -178,7 +181,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             privacy.text = link.privacyLine;
             codePanel.gameObject.SetActive(false);
             libPanel.gameObject.SetActive(false);
-            BetterYTSLinkBaker.Bake(link, baseUrl, poolSize); // start URLs + 10000 library URLs
+            BetterYTSLinkBaker.Bake(link, baseUrl, poolSize); // start + forget URLs, 2 × 10000 library URLs
 
             var udon = UdonSharpEditorUtility.GetBackingUdonBehaviour(link);
             Wire(linkYt, udon, nameof(BetterYTSLink._LinkYouTube));
@@ -193,6 +196,7 @@ namespace FoulFoxHacks.BetterYTS.Editor
             Wire(prev, udon, nameof(BetterYTSLink._PrevPage));
             Wire(next, udon, nameof(BetterYTSLink._NextPage));
             Wire(reload, udon, nameof(BetterYTSLink._Reload));
+            Wire(key, udon, nameof(BetterYTSLink._ShowKey));
             Wire(unlink, udon, nameof(BetterYTSLink._Unlink));
             for (int i = 0; i < n; i++) Wire(rowButtons[i], udon, "_Row" + i);
 
